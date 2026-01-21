@@ -142,14 +142,16 @@ if st.session_state.logged and not st.session_state.admin:
 
     params = st.query_params
 
-    if "lat" not in params:
-        st.info("📍 Fetching your location...")
-        st.stop()
+    photo = st.camera_input("📷 Take Photo")  # 🔥 CAMERA ALWAYS VISIBLE
 
+if "lat" not in params:
+    st.info("📍 Fetching your location...")
+    st.warning("📷 Photo le sakte ho, punch location ke baad hoga")
+    lat = None
+    lon = None
+else:
     lat = float(params["lat"])
     lon = float(params["lon"])
-
-    photo = st.camera_input("📷 Take Photo")
 
     df = load_data()
     today = now_ist().date()
