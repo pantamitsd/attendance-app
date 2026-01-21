@@ -13,7 +13,7 @@ supabase = create_client(
 )
 
 # ================= CONFIG =================
-ALLOWED_DISTANCE = 300  # meters
+ALLOWED_DISTANCE = 500  # meters (mobile GPS safe)
 IST = pytz.timezone("Asia/Kolkata")
 
 USERS = {
@@ -30,7 +30,7 @@ USERS = {
     "Surjesh": {"password": "1234"},
     "Bittu": {"password": "1234"},
     "Prakashkumarjha": {"password": "1234"},
-    "Amit": {"password": "1234"},
+    "amit": {"password": "1234"},
     "Himanshu": {"password": "1234"},
     "Rahul": {"password": "1234"},
 }
@@ -57,7 +57,7 @@ def distance_in_meters(lat1, lon1, lat2, lon2):
 def get_allowed_warehouses(user):
     res = (
         supabase.table("user_warehouses")
-        .select("warehouses(lat, lon)")
+        .select("warehouses(lat, lon, name)")
         .eq("user_name", user)
         .execute()
     )
@@ -79,11 +79,8 @@ def save_row(row):
 
 def load_data():
     res = supabase.table("attendance").select("*").execute()
-
-    cols = ["date", "name", "punch_type", "time", "photo", "lat", "lon"]
     if not res.data:
-        return pd.DataFrame(columns=cols)
-
+        return pd.DataFrame(columns=["date","name","punch_type","time","photo","lat","lon"])
     return pd.DataFrame(res.data)
 
 # ================= GPS =================
@@ -98,8 +95,9 @@ function getLocation(){
       window.location.search = p.toString();
     },
     function(){
-      alert("Location permission denied");
-    }
+      alert("Location permission denied. Please allow location.");
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
   );
 }
 </script>
@@ -132,7 +130,7 @@ if not st.session_state.logged:
                 st.session_state.user = name
                 st.rerun()
 
-        st.error("Invalid credentials")
+        st.error("❌ Invalid credentials")
 
 # ================= USER PANEL =================
 if st.session_state.logged and not st.session_state.admin:
@@ -142,51 +140,62 @@ if st.session_state.logged and not st.session_state.admin:
     st.markdown('<button onclick="getLocation()">📍 Get My Location</button>', unsafe_allow_html=True)
 
     params = st.query_params
-    lat = float(params["lat"]) if "lat" in params else None
-    lon = float(params["lon"]) if "lon" in params else None
+    if "lat" not in params or "lon" not in params:
+        st.warning("📍 Location required")
+        st.stop()
+
+    lat = float(params["lat"])
+    lon = float(params["lon"])
+
+    st.write("📍 Your Location:", lat, lon)  # DEBUG (remove later)
 
     photo = st.camera_input("📷 Take Photo")
 
     df = load_data()
     today = now_ist().date()
 
-    if df.empty:
-        already_in = False
-        already_out = False
-    else:
-        already_in = (
-            (df["name"] == user)
-            & (df["date"] == str(today))
-            & (df["punch_type"] == "IN")
-        ).any()
+    already_in = (
+        (df["name"] == user)
+        & (df["date"] == today.isoformat())
+        & (df["punch_type"] == "IN")
+    ).any()
 
-        already_out = (
-            (df["name"] == user)
-            & (df["date"] == str(today))
-            & (df["punch_type"] == "OUT")
-        ).any()
+    already_out = (
+        (df["name"] == user)
+        & (df["date"] == today.isoformat())
+        & (df["punch_type"] == "OUT")
+    ).any()
 
     allowed = get_allowed_warehouses(user)
+    if not allowed:
+        st.error("❌ No warehouse mapped")
+        st.stop()
 
-    def location_valid():
-        if lat is None or lon is None:
-            return False
-        for row in allowed:
-            wh = row["warehouses"]
-            if distance_in_meters(lat, lon, wh["lat"], wh["lon"]) <= ALLOWED_DISTANCE:
-                return True
-        return False
+    st.write("🏭 Allowed Warehouses:", allowed)  # DEBUG
+
+    valid_location = False
+    nearest_dist = None
+
+    for row in allowed:
+        wh = row["warehouses"]
+        dist = distance_in_meters(lat, lon, wh["lat"], wh["lon"])
+        nearest_dist = dist if nearest_dist is None else min(nearest_dist, dist)
+        if dist <= ALLOWED_DISTANCE:
+            valid_location = True
+            break
+
+    if not valid_location:
+        st.error(f"❌ Unauthorized Location (Distance: {int(nearest_dist)} m)")
+        st.stop()
 
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("✅ PUNCH IN"):
             if photo is None:
-                st.error("📷 Photo compulsory hai")
+                st.error("📷 Photo required")
             elif already_in:
                 st.error("Already punched IN")
-            elif not allowed or not location_valid():
-                st.error("Invalid / Unauthorized Location")
             else:
                 save_row({
                     "date": today.isoformat(),
@@ -197,16 +206,14 @@ if st.session_state.logged and not st.session_state.admin:
                     "lat": lat,
                     "lon": lon,
                 })
-                st.success("Punch IN successful")
+                st.success("✅ Punch IN successful")
 
     with col2:
         if st.button("⛔ PUNCH OUT"):
             if photo is None:
-                st.error("📷 Photo compulsory hai")
+                st.error("📷 Photo required")
             elif not already_in or already_out:
                 st.error("Invalid Punch OUT")
-            elif not location_valid():
-                st.error("Invalid / Unauthorized Location")
             else:
                 save_row({
                     "date": today.isoformat(),
@@ -217,10 +224,11 @@ if st.session_state.logged and not st.session_state.admin:
                     "lat": lat,
                     "lon": lon,
                 })
-                st.success("Punch OUT successful")
+                st.success("⛔ Punch OUT successful")
 
 # ================= ADMIN PANEL =================
 if st.session_state.logged and st.session_state.admin:
+    st.subheader("📊 Admin Panel")
     df = load_data()
     st.dataframe(df)
 
