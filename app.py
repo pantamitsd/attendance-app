@@ -83,7 +83,7 @@ def load_data():
     return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
 # ======================================================
-# ✅ GPS (IFRAME BASED – CSP SAFE, AUTO FETCH)
+# ✅ GPS (IFRAME BASED – CSP SAFE, MOBILE SAFE)
 # ======================================================
 components.html(
     """
@@ -103,7 +103,7 @@ components.html(
     }
     </script>
     """,
-    height=0,
+    height=1,   // IMPORTANT: mobile ke liye 0 nahi hona chahiye
 )
 
 # ================= SESSION =================
@@ -140,10 +140,10 @@ if st.session_state.logged and not st.session_state.admin:
     user = st.session_state.user
     st.subheader(f"👤 Welcome {user}")
 
-    st.info("📍 Fetching your location...")
-
     params = st.query_params
+
     if "lat" not in params:
+        st.info("📍 Fetching your location...")
         st.stop()
 
     lat = float(params["lat"])
