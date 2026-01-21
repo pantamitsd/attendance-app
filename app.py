@@ -83,7 +83,7 @@ def load_data():
     return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
 # ======================================================
-# ✅ GPS (IFRAME BASED – CSP SAFE, MOBILE SAFE)
+# ✅ GPS (IFRAME BASED – CSP SAFE)
 # ======================================================
 components.html(
     """
@@ -103,7 +103,7 @@ components.html(
     }
     </script>
     """,
-    height=1,   
+    height=1
 )
 
 # ================= SESSION =================
@@ -116,11 +116,11 @@ st.title("📸 SWISS MILITARY ATTENDANCE SYSTEM")
 
 # ================= LOGIN =================
 if not st.session_state.logged:
-    u_raw = st.text_input("Username")
+    u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        u_clean = u_raw.strip().lower()
+        u_clean = u.strip().lower()
 
         if u_clean == ADMIN_USER and p == ADMIN_PASSWORD:
             st.session_state.logged = True
@@ -142,16 +142,17 @@ if st.session_state.logged and not st.session_state.admin:
 
     params = st.query_params
 
-    photo = st.camera_input("📷 Take Photo")  # 🔥 CAMERA ALWAYS VISIBLE
+    # 📷 CAMERA ALWAYS VISIBLE
+    photo = st.camera_input("📷 Take Photo")
 
-if "lat" not in params:
-    st.info("📍 Fetching your location...")
-    st.warning("📷 Photo le sakte ho, punch location ke baad hoga")
-    lat = None
-    lon = None
-else:
-    lat = float(params["lat"])
-    lon = float(params["lon"])
+    if "lat" not in params:
+        st.info("📍 Fetching your location...")
+        lat = None
+        lon = None
+    else:
+        lat = float(params["lat"])
+        lon = float(params["lon"])
+        st.success("📍 Location fetched")
 
     df = load_data()
     today = now_ist().date()
@@ -168,28 +169,14 @@ else:
         & (df["punch_type"] == "OUT")
     ).any() if not df.empty else False
 
-    allowed = get_allowed_warehouses(user)
-    if not allowed:
-        st.error("❌ Aap kisi warehouse ke liye allowed nahi ho")
-        st.stop()
-
-    valid_location = False
-    for row in allowed:
-        wh = row["warehouses"]
-        if distance_in_meters(lat, lon, wh["lat"], wh["lon"]) <= ALLOWED_DISTANCE:
-            valid_location = True
-            break
-
-    if not valid_location:
-        st.error("❌ Aap allowed warehouse location par nahi ho")
-        st.stop()
-
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("✅ PUNCH IN"):
-            if photo is None:
-                st.error("📷 Photo compulsory hai")
+            if lat is None or lon is None:
+                st.error("📍 Location not available")
+            elif photo is None:
+                st.error("📷 Photo compulsory")
             elif already_in:
                 st.error("Already punched IN today")
             else:
@@ -206,8 +193,10 @@ else:
 
     with col2:
         if st.button("⛔ PUNCH OUT"):
-            if photo is None:
-                st.error("📷 Photo compulsory hai")
+            if lat is None or lon is None:
+                st.error("📍 Location not available")
+            elif photo is None:
+                st.error("📷 Photo compulsory")
             elif not already_in or already_out:
                 st.error("Invalid Punch OUT")
             else:
