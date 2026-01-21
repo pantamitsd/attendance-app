@@ -103,7 +103,7 @@ components.html(
     }
     </script>
     """,
-    height=1,   // IMPORTANT: mobile ke liye 0 nahi hona chahiye
+    height=1,   
 )
 
 # ================= SESSION =================
