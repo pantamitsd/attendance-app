@@ -279,11 +279,3 @@ if st.session_state.logged:
         st.session_state.clear()
         st.query_params.clear()
         st.rerun()
-
-
-
-
-
-
-
-
