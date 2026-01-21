@@ -33,7 +33,7 @@ USERS = {
     "amit": {"password": "1234"},
     "Himanshu": {"password": "1234"},
     "Rahul": {"password": "1234"},
-    }
+}
 
 ADMIN_USER = "admin"
 ADMIN_PASSWORD = "admin123"
@@ -64,8 +64,6 @@ def get_allowed_warehouses(user):
     return res.data or []
 
 def save_photo(photo):
-    if photo is None:
-        return ""
     filename = f"{uuid.uuid4()}.jpg"
     supabase.storage.from_("attendance-photos").upload(
         filename,
@@ -75,21 +73,13 @@ def save_photo(photo):
     return filename
 
 def save_row(row):
-    try:
-        supabase.table("attendance").insert(row).execute()
-    except Exception as e:
-        st.error("❌ Attendance save nahi hui")
-        st.exception(e)
-        st.stop()
+    supabase.table("attendance").insert(row).execute()
 
 def load_data():
     res = supabase.table("attendance").select("*").execute()
-    cols = ["date", "name", "punch_type", "time", "photo", "lat", "lon"]
-    if not res.data:
-        return pd.DataFrame(columns=cols)
-    return pd.DataFrame(res.data)
+    return pd.DataFrame(res.data or [])
 
-# ================= GPS =================
+# ================= GPS SCRIPT =================
 st.markdown("""
 <script>
 function getLocation(){
@@ -100,7 +90,9 @@ function getLocation(){
       p.set("lon", pos.coords.longitude);
       window.location.search = p.toString();
     },
-    function(){ alert("Location denied"); }
+    function(){
+      alert("Location permission denied");
+    }
   );
 }
 </script>
@@ -115,163 +107,102 @@ if "logged" not in st.session_state:
 st.title("📸 SWISS MILITARY ATTENDANCE SYSTEM")
 
 # ================= LOGIN =================
-
 if not st.session_state.logged:
-    u_raw = st.text_input("Username")
+    u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        u_clean = u_raw.strip().lower()
-
-        matched_user = None
-        for real_user in USERS:
-            if real_user.lower() == u_clean:
-                matched_user = real_user
-                break
+        u_clean = u.strip().lower()
 
         if u_clean == ADMIN_USER and p == ADMIN_PASSWORD:
             st.session_state.logged = True
             st.session_state.admin = True
             st.rerun()
 
-        elif matched_user and USERS[matched_user]["password"] == p:
-            st.session_state.logged = True
-            st.session_state.user = matched_user  # ORIGINAL NAME
-            st.rerun()
-        else:
-            st.error("Invalid credentials")
+        for name in USERS:
+            if name.lower() == u_clean and USERS[name]["password"] == p:
+                st.session_state.logged = True
+                st.session_state.user = name
+                st.rerun()
 
+        st.error("Invalid credentials")
 
 # ================= USER PANEL =================
 if st.session_state.logged and not st.session_state.admin:
     user = st.session_state.user
     st.subheader(f"👤 Welcome {user}")
+
     st.markdown('<button onclick="getLocation()">📍 Get My Location</button>', unsafe_allow_html=True)
 
     params = st.query_params
-    if "lat" not in params:
-        st.warning("Get location first")
-        st.stop()
+    lat = float(params["lat"]) if "lat" in params else None
+    lon = float(params["lon"]) if "lon" in params else None
 
-    lat = float(params["lat"])
-    lon = float(params["lon"])
     photo = st.camera_input("📷 Take Photo")
 
     df = load_data()
     today = now_ist().date()
-    already_in = (
-        (df["name"] == user)
-        & (pd.to_datetime(df["date"]).dt.date == today)
-        & (df["punch_type"] == "IN")
-    ).any()
 
-    already_out = (
-        (df["name"] == user)
-        & (pd.to_datetime(df["date"]).dt.date == today)
-        & (df["punch_type"] == "OUT")
-    ).any()
+    already_in = ((df["name"] == user) & (df["date"] == str(today)) & (df["punch_type"] == "IN")).any()
+    already_out = ((df["name"] == user) & (df["date"] == str(today)) & (df["punch_type"] == "OUT")).any()
 
     allowed = get_allowed_warehouses(user)
-    if not allowed:
-        st.error("❌ Aap kisi warehouse ke liye allowed nahi ho")
-        st.stop()
 
-    valid_location = False
-    for row in allowed:
-        wh = row["warehouses"]
-        dist = distance_in_meters(lat, lon, wh["lat"], wh["lon"])
-        if dist <= ALLOWED_DISTANCE:
-            valid_location = True
-            break
-
-    if not valid_location:
-        st.error("❌ Aap allowed warehouse location par nahi ho")
-        st.stop()
+    def location_valid():
+        if lat is None or lon is None:
+            return False
+        for row in allowed:
+            wh = row["warehouses"]
+            if distance_in_meters(lat, lon, wh["lat"], wh["lon"]) <= ALLOWED_DISTANCE:
+                return True
+        return False
 
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("✅ PUNCH IN"):
             if photo is None:
-                st.error("📷 Photo compulsory hai")
-                st.stop()
-            if already_in:
-                st.error("Already punched IN today")
-                st.stop()
-
-            save_row({
-                "date": today.isoformat(),
-                "name": user,
-                "punch_type": "IN",
-                "time": now_ist().strftime("%H:%M:%S"),
-                "photo": save_photo(photo),
-                "lat": lat,
-                "lon": lon,
-            })
-            st.success("Punch IN successful")
+                st.error("Photo compulsory hai")
+            elif already_in:
+                st.error("Already punched IN")
+            elif not allowed or not location_valid():
+                st.error("Invalid / Unauthorized Location")
+            else:
+                save_row({
+                    "date": today.isoformat(),
+                    "name": user,
+                    "punch_type": "IN",
+                    "time": now_ist().strftime("%H:%M:%S"),
+                    "photo": save_photo(photo),
+                    "lat": lat,
+                    "lon": lon,
+                })
+                st.success("Punch IN successful")
 
     with col2:
         if st.button("⛔ PUNCH OUT"):
             if photo is None:
-                st.error("📷 Photo compulsory hai")
-                st.stop()
-            if not already_in or already_out:
+                st.error("Photo compulsory hai")
+            elif not already_in or already_out:
                 st.error("Invalid Punch OUT")
-                st.stop()
-
-            save_row({
-                "date": today.isoformat(),
-                "name": user,
-                "punch_type": "OUT",
-                "time": now_ist().strftime("%H:%M:%S"),
-                "photo": save_photo(photo),
-                "lat": lat,
-                "lon": lon,
-            })
-            st.success("Punch OUT successful")
+            elif not location_valid():
+                st.error("Invalid / Unauthorized Location")
+            else:
+                save_row({
+                    "date": today.isoformat(),
+                    "name": user,
+                    "punch_type": "OUT",
+                    "time": now_ist().strftime("%H:%M:%S"),
+                    "photo": save_photo(photo),
+                    "lat": lat,
+                    "lon": lon,
+                })
+                st.success("Punch OUT successful")
 
 # ================= ADMIN PANEL =================
 if st.session_state.logged and st.session_state.admin:
     df = load_data()
-    df["date"] = pd.to_datetime(df["date"])
-    today = now_ist().date()
-
-    tab1, tab2 = st.tabs(["📊 Attendance Table", "📸 Attendance Photos"])
-
-    with tab1:
-        filter = st.selectbox(
-            "📅 Date Filter",
-            ["Today", "Yesterday", "Last 7 Days", "Custom Date Range"],
-        )
-
-        if filter == "Today":
-            filtered_df = df[df["date"].dt.date == today]
-        elif filter == "Yesterday":
-            filtered_df = df[df["date"].dt.date == today - pd.Timedelta(days=1)]
-        elif filter == "Last 7 Days":
-            filtered_df = df[
-                (df["date"].dt.date >= today - pd.Timedelta(days=7))
-                & (df["date"].dt.date <= today)
-            ]
-        else:
-            s, e = st.columns(2)
-            start = s.date_input("Start", today - pd.Timedelta(days=7))
-            end = e.date_input("End", today)
-            filtered_df = df[
-                (df["date"].dt.date >= start) & (df["date"].dt.date <= end)
-            ]
-
-        st.dataframe(filtered_df)
-
-    with tab2:
-        for _, row in filtered_df.iterrows():
-            if row["photo"]:
-                url = supabase.storage.from_("attendance-photos").get_public_url(row["photo"])
-                st.image(
-                    url,
-                    caption=f"{row['name']} | {row['punch_type']}",
-                    width=220,
-                )
+    st.dataframe(df)
 
 # ================= LOGOUT =================
 if st.session_state.logged:
@@ -279,11 +210,3 @@ if st.session_state.logged:
         st.session_state.clear()
         st.query_params.clear()
         st.rerun()
-
-
-
-
-
-
-
-
