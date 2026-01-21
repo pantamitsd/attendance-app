@@ -30,7 +30,7 @@ USERS = {
     "Surjesh": {"password": "1234"},
     "Bittu": {"password": "1234"},
     "Prakashkumarjha": {"password": "1234"},
-    "amit": {"password": "1234"},
+    "Amit": {"password": "1234"},
     "Himanshu": {"password": "1234"},
     "Rahul": {"password": "1234"},
 }
