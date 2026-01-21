@@ -64,6 +64,8 @@ def get_allowed_warehouses(user):
     return res.data or []
 
 def save_photo(photo):
+    if photo is None:
+        return ""
     filename = f"{uuid.uuid4()}.jpg"
     supabase.storage.from_("attendance-photos").upload(
         filename,
@@ -77,9 +79,14 @@ def save_row(row):
 
 def load_data():
     res = supabase.table("attendance").select("*").execute()
-    return pd.DataFrame(res.data or [])
 
-# ================= GPS SCRIPT =================
+    cols = ["date", "name", "punch_type", "time", "photo", "lat", "lon"]
+    if not res.data:
+        return pd.DataFrame(columns=cols)
+
+    return pd.DataFrame(res.data)
+
+# ================= GPS =================
 st.markdown("""
 <script>
 function getLocation(){
@@ -143,8 +150,21 @@ if st.session_state.logged and not st.session_state.admin:
     df = load_data()
     today = now_ist().date()
 
-    already_in = ((df["name"] == user) & (df["date"] == str(today)) & (df["punch_type"] == "IN")).any()
-    already_out = ((df["name"] == user) & (df["date"] == str(today)) & (df["punch_type"] == "OUT")).any()
+    if df.empty:
+        already_in = False
+        already_out = False
+    else:
+        already_in = (
+            (df["name"] == user)
+            & (df["date"] == str(today))
+            & (df["punch_type"] == "IN")
+        ).any()
+
+        already_out = (
+            (df["name"] == user)
+            & (df["date"] == str(today))
+            & (df["punch_type"] == "OUT")
+        ).any()
 
     allowed = get_allowed_warehouses(user)
 
@@ -162,7 +182,7 @@ if st.session_state.logged and not st.session_state.admin:
     with col1:
         if st.button("✅ PUNCH IN"):
             if photo is None:
-                st.error("Photo compulsory hai")
+                st.error("📷 Photo compulsory hai")
             elif already_in:
                 st.error("Already punched IN")
             elif not allowed or not location_valid():
@@ -182,7 +202,7 @@ if st.session_state.logged and not st.session_state.admin:
     with col2:
         if st.button("⛔ PUNCH OUT"):
             if photo is None:
-                st.error("Photo compulsory hai")
+                st.error("📷 Photo compulsory hai")
             elif not already_in or already_out:
                 st.error("Invalid Punch OUT")
             elif not location_valid():
