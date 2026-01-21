@@ -5,6 +5,7 @@ from datetime import datetime
 import math
 import uuid
 from supabase.client import create_client
+import streamlit.components.v1 as components
 
 # ================= SUPABASE =================
 supabase = create_client(
@@ -81,31 +82,29 @@ def load_data():
     res = supabase.table("attendance").select("*").execute()
     return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
-# =========================================================
-# 🔍 JS HEALTH CHECK (TESTING ONLY – DO NOT ADD TO PROD)
-# =========================================================
-st.markdown("""
-<script>
-alert("JS IS WORKING");
-</script>
-""", unsafe_allow_html=True)
-
-# ================= GPS (ORIGINAL CODE – UNCHANGED) =================
-st.markdown("""
-<script>
-function getLocation(){
-  navigator.geolocation.getCurrentPosition(
-    function(pos){
-      const p = new URLSearchParams(window.location.search);
-      p.set("lat", pos.coords.latitude);
-      p.set("lon", pos.coords.longitude);
-      window.location.search = p.toString();
-    },
-    function(){ alert("Location denied"); }
-  );
-}
-</script>
-""", unsafe_allow_html=True)
+# ======================================================
+# ✅ GPS (IFRAME BASED – CSP SAFE, AUTO FETCH)
+# ======================================================
+components.html(
+    """
+    <script>
+    if (!window.location.search.includes("lat")) {
+        navigator.geolocation.getCurrentPosition(
+            function(pos){
+                const p = new URLSearchParams(window.location.search);
+                p.set("lat", pos.coords.latitude);
+                p.set("lon", pos.coords.longitude);
+                window.location.search = p.toString();
+            },
+            function(){
+                alert("Location denied");
+            }
+        );
+    }
+    </script>
+    """,
+    height=0,
+)
 
 # ================= SESSION =================
 if "logged" not in st.session_state:
@@ -123,34 +122,28 @@ if not st.session_state.logged:
     if st.button("Login"):
         u_clean = u_raw.strip().lower()
 
-        matched_user = None
-        for real_user in USERS:
-            if real_user.lower() == u_clean:
-                matched_user = real_user
-                break
-
         if u_clean == ADMIN_USER and p == ADMIN_PASSWORD:
             st.session_state.logged = True
             st.session_state.admin = True
             st.rerun()
 
-        elif matched_user and USERS[matched_user]["password"] == p:
-            st.session_state.logged = True
-            st.session_state.user = matched_user
-            st.rerun()
-        else:
-            st.error("Invalid credentials")
+        for real_user in USERS:
+            if real_user.lower() == u_clean and USERS[real_user]["password"] == p:
+                st.session_state.logged = True
+                st.session_state.user = real_user
+                st.rerun()
+
+        st.error("Invalid credentials")
 
 # ================= USER PANEL =================
 if st.session_state.logged and not st.session_state.admin:
     user = st.session_state.user
     st.subheader(f"👤 Welcome {user}")
 
-    st.markdown('<button onclick="getLocation()">📍 Get My Location</button>', unsafe_allow_html=True)
+    st.info("📍 Fetching your location...")
 
     params = st.query_params
     if "lat" not in params:
-        st.warning("Get location first")
         st.stop()
 
     lat = float(params["lat"])
@@ -226,3 +219,18 @@ if st.session_state.logged and not st.session_state.admin:
                     "lon": lon,
                 })
                 st.success("Punch OUT successful")
+
+# ================= ADMIN PANEL =================
+if st.session_state.logged and st.session_state.admin:
+    st.subheader("📊 Admin Panel")
+    df = load_data()
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"])
+        st.dataframe(df)
+
+# ================= LOGOUT =================
+if st.session_state.logged:
+    if st.button("Logout"):
+        st.session_state.clear()
+        st.query_params.clear()
+        st.rerun()
