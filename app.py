@@ -15,24 +15,16 @@ supabase = create_client(
 ALLOWED_DISTANCE = 500  # meters
 IST = pytz.timezone("Asia/Kolkata")
 
+# 👇 USER TYPES ADDED
 USERS = {
-    "ajad": {"password": "1234"},
-    "jitender": {"password": "1234"},
-    "ramniwas": {"password": "1234"},
-    "lakshman": {"password": "1234"},
-    "prempatil": {"password": "1234"},
-    "mithlesh": {"password": "1234"},
-    "dharmendra": {"password": "1234"},
-    "deepak": {"password": "1234"},
-    "rajan": {"password": "1234"},
-    "shyamjeesharma": {"password": "1234"},
-    "surjesh": {"password": "1234"},
-    "bittu": {"password": "1234"},
-    "prakashkumarjha": {"password": "1234"},
-    "amit": {"password": "1234"},
-    "himanshu": {"password": "1234"},
-    "rittin": {"password": "1234"},
-    "rahul": {"password": "1234"},
+    "ajad": {"password": "1234", "type": "warehouse"},
+    "jitender": {"password": "1234", "type": "warehouse"},
+    "ramniwas": {"password": "1234", "type": "warehouse"},
+
+    # FIELD USERS
+    "amit": {"password": "1234", "type": "field"},
+    "rahul": {"password": "1234", "type": "field"},
+    "himanshu": {"password": "1234", "type": "field"},
 }
 
 ADMIN_USER = "admin"
@@ -62,15 +54,6 @@ def get_allowed_warehouse_ids(user):
         .execute()
     )
     return [r["warehouse_id"] for r in (res.data or []) if r["warehouse_id"]]
-
-def load_data():
-    res = supabase.table("attendance").select("*").execute()
-    if not res.data:
-        return pd.DataFrame(columns=["date","name","punch_type","time","lat","lon","warehouse_id"])
-    return pd.DataFrame(res.data)
-
-def save_row(row):
-    supabase.table("attendance").insert(row).execute()
 
 def get_nearest_warehouse(lat, lon, warehouse_ids):
     nearest = None
@@ -109,6 +92,9 @@ def upload_photo(photo, user):
         {"content-type": photo.type}
     )
     return filename
+
+def save_row(row):
+    supabase.table("attendance").insert(row).execute()
 
 # ================= GPS SCRIPT =================
 st.markdown("""
@@ -158,13 +144,13 @@ if not st.session_state.logged:
 # ================= USER PANEL =================
 if st.session_state.logged and not st.session_state.admin:
     user = st.session_state.user
+    user_type = USERS[user]["type"]
     today = now_ist().date()
-    st.subheader(f"👤 Welcome {user}")
 
+    st.subheader(f"👤 Welcome {user}")
     st.markdown('<button onclick="getLocation()">📍 Get My Location</button>', unsafe_allow_html=True)
 
     params = dict(st.query_params)
-
     if "lat" not in params or "lon" not in params:
         st.warning("📍 Get location first")
         st.stop()
@@ -173,55 +159,35 @@ if st.session_state.logged and not st.session_state.admin:
     lon = float(params["lon"])
     st.write("GPS:", lat, lon)
 
-    warehouse_ids = get_allowed_warehouse_ids(user)
-    if not warehouse_ids:
-        st.error("❌ Aap kisi warehouse ke liye allowed nahi ho")
-        st.stop()
-
-    nearest_wh = get_nearest_warehouse(lat, lon, warehouse_ids)
-    if not nearest_wh or nearest_wh["distance"] > ALLOWED_DISTANCE:
-        st.error("❌ Aap allowed warehouse ke paas nahi ho")
-        st.stop()
-
-    st.success(f"🏭 Warehouse Detected: {nearest_wh['name']} ({int(nearest_wh['distance'])} m)")
-
-    st.markdown("### 📝 Movement / Expense Remark")
-    remark_text = st.text_area("ENTER WHERE ARE YOUR GOING?")
-
-    if st.button("💾 SAVE REMARK"):
-        if not remark_text.strip():
-            st.warning("❗ Remark empty nahi ho sakta")
-            st.stop()
-
-        supabase.table("attendance_remarks").insert({
-            "user_name": user,
-            "date": today.isoformat(),
-            "time": now_ist().strftime("%H:%M:%S"),
-            "remark": remark_text.strip().upper()
-        }).execute()
-        st.success("✅ Remark saved successfully")
+    # 👇 FIELD USERS KO OPTION
+    if user_type == "field":
+        location_mode = st.radio(
+            "📍 Select Location Type",
+            ["Existing Location", "New Location"]
+        )
+    else:
+        location_mode = "Existing Location"
 
     photo = st.camera_input("📸 Attendance Photo (Compulsory)")
-    df = load_data()
 
-    already_in = (
-        (df["name"].str.lower() == user)
-        & (pd.to_datetime(df["date"]).dt.date == today)
-        & (df["punch_type"] == "IN")
-    ).any()
+    # ================= EXISTING LOCATION =================
+    if location_mode == "Existing Location":
 
-    already_out = (
-        (df["name"].str.lower() == user)
-        & (pd.to_datetime(df["date"]).dt.date == today)
-        & (df["punch_type"] == "OUT")
-    ).any()
+        warehouse_ids = get_allowed_warehouse_ids(user)
+        if not warehouse_ids:
+            st.error("❌ Aap kisi warehouse ke liye allowed nahi ho")
+            st.stop()
 
-    col1, col2 = st.columns(2)
+        nearest_wh = get_nearest_warehouse(lat, lon, warehouse_ids)
+        if not nearest_wh or nearest_wh["distance"] > ALLOWED_DISTANCE:
+            st.error("❌ Aap allowed warehouse ke paas nahi ho")
+            st.stop()
 
-    with col1:
-        if st.button("✅ PUNCH IN", disabled=already_in):
+        st.success(f"🏭 Warehouse Detected: {nearest_wh['name']}")
+
+        if st.button("✅ PUNCH IN"):
             if not photo:
-                st.warning("📸 Punch IN ke liye photo compulsory hai")
+                st.warning("📸 Photo required")
                 st.stop()
 
             save_row({
@@ -235,26 +201,56 @@ if st.session_state.logged and not st.session_state.admin:
                 "warehouse_name": nearest_wh["name"],
                 "photo": upload_photo(photo, user),
             })
+
             st.success("Punch IN successful")
 
-    with col2:
-        if st.button("⛔ PUNCH OUT", disabled=not already_in or already_out):
-            if not photo:
-                st.warning("📸 Punch OUT ke liye photo compulsory hai")
+    # ================= NEW LOCATION =================
+    if location_mode == "New Location":
+
+        st.markdown("### 🆕 Add New Location")
+
+        loc_name = st.text_input("Location Name")
+        remark = st.text_area("Reason / Remark")
+
+        if st.button("📍 ADD LOCATION & PUNCH IN"):
+            if not loc_name.strip() or not remark.strip():
+                st.warning("Location name & remark required")
                 st.stop()
+
+            if not photo:
+                st.warning("Photo compulsory")
+                st.stop()
+
+            loc = supabase.table("warehouses").insert({
+                "name": loc_name.upper(),
+                "lat": lat,
+                "lon": lon,
+                "type": "FIELD",
+                "created_by": user
+            }).execute()
+
+            loc_id = loc.data[0]["id"]
 
             save_row({
                 "date": today.isoformat(),
                 "name": user,
-                "punch_type": "OUT",
+                "punch_type": "IN",
                 "time": now_ist().strftime("%H:%M:%S"),
                 "lat": lat,
                 "lon": lon,
-                "warehouse_id": nearest_wh["id"],
-                "warehouse_name": nearest_wh["name"],
+                "warehouse_id": loc_id,
+                "warehouse_name": loc_name.upper(),
                 "photo": upload_photo(photo, user),
             })
-            st.success("Punch OUT successful")
+
+            supabase.table("attendance_remarks").insert({
+                "user_name": user,
+                "date": today.isoformat(),
+                "time": now_ist().strftime("%H:%M:%S"),
+                "remark": remark.upper()
+            }).execute()
+
+            st.success("✅ New location added & Punch IN done")
 
 # ================= LOGOUT =================
 if st.session_state.logged:
