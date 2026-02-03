@@ -83,7 +83,6 @@ def get_nearest_warehouse(lat, lon, warehouse_ids):
             .eq("id", wid)
             .execute()
         )
-
         if not res.data:
             continue
 
@@ -91,11 +90,7 @@ def get_nearest_warehouse(lat, lon, warehouse_ids):
         if wh["lat"] is None or wh["lon"] is None:
             continue
 
-        dist = distance_in_meters(
-            lat, lon,
-            float(wh["lat"]),
-            float(wh["lon"])
-        )
+        dist = distance_in_meters(lat, lon, float(wh["lat"]), float(wh["lon"]))
 
         if dist < min_dist:
             min_dist = dist
@@ -104,7 +99,6 @@ def get_nearest_warehouse(lat, lon, warehouse_ids):
                 "name": wh["name"],
                 "distance": dist
             }
-
     return nearest
 
 def upload_photo(photo, user):
@@ -169,7 +163,8 @@ if st.session_state.logged and not st.session_state.admin:
 
     st.markdown('<button onclick="getLocation()">📍 Get My Location</button>', unsafe_allow_html=True)
 
-    params = st.query_params
+    params = dict(st.query_params)
+
     if "lat" not in params or "lon" not in params:
         st.warning("📍 Get location first")
         st.stop()
@@ -184,22 +179,14 @@ if st.session_state.logged and not st.session_state.admin:
         st.stop()
 
     nearest_wh = get_nearest_warehouse(lat, lon, warehouse_ids)
-
     if not nearest_wh or nearest_wh["distance"] > ALLOWED_DISTANCE:
         st.error("❌ Aap allowed warehouse ke paas nahi ho")
         st.stop()
 
-    st.success(
-        f"🏭 Warehouse Detected: {nearest_wh['name']} "
-        f"({int(nearest_wh['distance'])} m)"
-    )
+    st.success(f"🏭 Warehouse Detected: {nearest_wh['name']} ({int(nearest_wh['distance'])} m)")
 
     st.markdown("### 📝 Movement / Expense Remark")
-
-    remark_text = st.text_area(
-        "ENTER WHERE ARE YOUR GOING?",
-        placeholder="Enter Your Remarks here, and click on Save Remarks."
-    )
+    remark_text = st.text_area("ENTER WHERE ARE YOUR GOING?")
 
     if st.button("💾 SAVE REMARK"):
         if not remark_text.strip():
@@ -212,11 +199,9 @@ if st.session_state.logged and not st.session_state.admin:
             "time": now_ist().strftime("%H:%M:%S"),
             "remark": remark_text.strip().upper()
         }).execute()
-
         st.success("✅ Remark saved successfully")
 
     photo = st.camera_input("📸 Attendance Photo (Compulsory)")
-
     df = load_data()
 
     already_in = (
@@ -250,7 +235,6 @@ if st.session_state.logged and not st.session_state.admin:
                 "warehouse_name": nearest_wh["name"],
                 "photo": upload_photo(photo, user),
             })
-
             st.success("Punch IN successful")
 
     with col2:
@@ -270,7 +254,6 @@ if st.session_state.logged and not st.session_state.admin:
                 "warehouse_name": nearest_wh["name"],
                 "photo": upload_photo(photo, user),
             })
-
             st.success("Punch OUT successful")
 
 # ================= LOGOUT =================
