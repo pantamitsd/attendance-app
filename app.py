@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import pytz
-from datetime import datetime
+from datetime import datetime, UTC
 import math
 from supabase.client import create_client
 
@@ -40,7 +40,7 @@ ADMIN_PASSWORD = "admin123"
 
 # ================= HELPERS =================
 def now_ist():
-    return datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(IST)
+    return datetime.now(UTC).astimezone(IST)
 
 def distance_in_meters(lat1, lon1, lat2, lon2):
     R = 6371000
@@ -108,7 +108,7 @@ def get_nearest_warehouse(lat, lon, warehouse_ids):
     return nearest
 
 def upload_photo(photo, user):
-    filename = f"{user}/{datetime.utcnow().timestamp()}.jpg"
+    filename = f"{user}/{datetime.now(UTC).timestamp()}.jpg"
     supabase.storage.from_("attendance-photos").upload(
         filename,
         photo.getvalue(),
@@ -174,8 +174,8 @@ if st.session_state.logged and not st.session_state.admin:
         st.warning("📍 Get location first")
         st.stop()
 
-    lat = float(params["lat"][0])
-    lon = float(params["lon"][0])
+    lat = float(params["lat"])
+    lon = float(params["lon"])
     st.write("GPS:", lat, lon)
 
     warehouse_ids = get_allowed_warehouse_ids(user)
@@ -194,95 +194,51 @@ if st.session_state.logged and not st.session_state.admin:
         f"({int(nearest_wh['distance'])} m)"
     )
 
-    # ================= REMARK SECTION =================
     st.markdown("### 📝 Movement / Expense Remark")
-    
+
     remark_text = st.text_area(
         "ENTER WHERE ARE YOUR GOING?",
         placeholder="Enter Your Remarks here, and click on Save Remarks."
     )
-    
+
     if st.button("💾 SAVE REMARK"):
         if not remark_text.strip():
             st.warning("❗ Remark empty nahi ho sakta")
             st.stop()
-    
+
         supabase.table("attendance_remarks").insert({
             "user_name": user,
             "date": today.isoformat(),
-            "time": datetime.utcnow().strftime("%H:%M:%S"),
+            "time": now_ist().strftime("%H:%M:%S"),
             "remark": remark_text.strip().upper()
         }).execute()
-    
-        st.success("✅ Remark saved successfully")
-    
 
-    
+        st.success("✅ Remark saved successfully")
+
     photo = st.camera_input("📸 Attendance Photo (Compulsory)")
 
-    photo_path = None
-    
-    # ===== ATTENDANCE LOGIC =====
     df = load_data()
-    today = now_ist().date()
-    
+
     already_in = (
         (df["name"].str.lower() == user)
         & (pd.to_datetime(df["date"]).dt.date == today)
         & (df["punch_type"] == "IN")
     ).any()
-    
+
     already_out = (
         (df["name"].str.lower() == user)
         & (pd.to_datetime(df["date"]).dt.date == today)
         & (df["punch_type"] == "OUT")
     ).any()
-    
-    # ===== WORK TIMER (ONLY BETWEEN IN & OUT) =====
-    if already_in and not already_out:
-    
-        today_in_df = df[
-            (df["name"].str.lower() == user)
-            & (pd.to_datetime(df["date"]).dt.date == today)
-            & (df["punch_type"] == "IN")
-        ]
-    
-        punch_in_time = pd.to_datetime(
-            today_in_df.iloc[0]["date"] + " " + today_in_df.iloc[0]["time"]
-        ).tz_localize(IST)
 
-    
-        now_time = now_ist()
-        elapsed = now_time - punch_in_time
-    
-        hours = elapsed.seconds // 3600
-        minutes = (elapsed.seconds % 3600) // 60
-    
-        st.info(f"⏱️ Working Time: {hours} hours {minutes} minutes")
-    
-        SHIFT_HOURS = 8.5
-        worked_hours = elapsed.seconds / 3600
-    
-        if worked_hours >= SHIFT_HOURS:
-            st.success("✅ Working hours complete ho chuke hain")
-        else:
-            remaining = SHIFT_HOURS - worked_hours
-            st.warning(f"⌛ {remaining:.1f} hours remaining")
-    
-    elif already_out:
-        st.success("🛑 Punch OUT ho chuka hai. Aaj ka kaam complete.")
-    
     col1, col2 = st.columns(2)
-    
+
     with col1:
         if st.button("✅ PUNCH IN", disabled=already_in):
-    
             if not photo:
                 st.warning("📸 Punch IN ke liye photo compulsory hai")
                 st.stop()
-    
-            photo_path = upload_photo(photo, user)
-    
+
             save_row({
                 "date": today.isoformat(),
                 "name": user,
@@ -292,20 +248,17 @@ if st.session_state.logged and not st.session_state.admin:
                 "lon": lon,
                 "warehouse_id": nearest_wh["id"],
                 "warehouse_name": nearest_wh["name"],
-                "photo": photo_path,
+                "photo": upload_photo(photo, user),
             })
-    
+
             st.success("Punch IN successful")
-    
+
     with col2:
         if st.button("⛔ PUNCH OUT", disabled=not already_in or already_out):
-    
             if not photo:
                 st.warning("📸 Punch OUT ke liye photo compulsory hai")
                 st.stop()
-    
-            photo_path = upload_photo(photo, user)
-    
+
             save_row({
                 "date": today.isoformat(),
                 "name": user,
@@ -315,87 +268,14 @@ if st.session_state.logged and not st.session_state.admin:
                 "lon": lon,
                 "warehouse_id": nearest_wh["id"],
                 "warehouse_name": nearest_wh["name"],
-                "photo": photo_path,
+                "photo": upload_photo(photo, user),
             })
-    
+
             st.success("Punch OUT successful")
-
-
-# ================= ADMIN PANEL =================
-if st.session_state.logged and st.session_state.admin:
-
-    df = load_data()
-    df["date"] = pd.to_datetime(df["date"])
-    today = now_ist().date()
-
-    # ---- COMMON FILTER ----
-    filter = st.selectbox(
-        "📅 Date Filter",
-        ["Today", "Yesterday", "Last 7 Days", "Custom Date Range"],
-    )
-
-    if filter == "Today":
-        filtered_df = df[df["date"].dt.date == today]
-    elif filter == "Yesterday":
-        filtered_df = df[df["date"].dt.date == today - pd.Timedelta(days=1)]
-    elif filter == "Last 7 Days":
-        filtered_df = df[
-            (df["date"].dt.date >= today - pd.Timedelta(days=7)) &
-            (df["date"].dt.date <= today)
-        ]
-    else:
-        s, e = st.columns(2)
-        start = s.date_input("Start", today - pd.Timedelta(days=7))
-        end = e.date_input("End", today)
-        filtered_df = df[
-            (df["date"].dt.date >= start) &
-            (df["date"].dt.date <= end)
-        ]
-
-    tab1, tab2, tab3 = st.tabs(["📊 Attendance Table", "📸 Attendance Photos","📝 Movement / Expense Remarks"])
-
-    with tab1:
-        if filtered_df.empty:
-            st.warning("⚠️ No data found")
-        else:
-            st.dataframe(filtered_df)
-
-    with tab2:
-        if filtered_df.empty:
-            st.info("📸 No photos to display")
-        else:
-            for _, row in filtered_df.iterrows():
-                if "photo" in filtered_df.columns and row.get("photo"):
-                    url = supabase.storage.from_("attendance-photos").get_public_url(row["photo"])
-                    st.image(
-                        url,
-                        caption=f"{row['name']} | {row['punch_type']}",
-                        width=220,
-                    )
-
-    with tab3:
-        remarks_res = (
-            supabase
-            .table("attendance_remarks")
-            .select("*")
-            .order("created_at", desc=True)
-            .execute()
-        )
-
-        if not remarks_res.data:
-            st.info("📝 No remarks found")
-        else:
-            remarks_df = pd.DataFrame(remarks_res.data)
-    
-            st.dataframe(
-                remarks_df[["user_name", "date", "time", "remark"]],
-                use_container_width=True
-            )
-
 
 # ================= LOGOUT =================
 if st.session_state.logged:
     if st.button("Logout"):
         st.session_state.clear()
-        st.experimental_set_query_params()
+        st.query_params.clear()
         st.rerun()
