@@ -1,8 +1,6 @@
 import streamlit as st
-import pandas as pd
 import pytz
 from datetime import datetime, UTC
-import math
 from supabase.client import create_client
 
 # ================= SUPABASE =================
@@ -15,9 +13,6 @@ supabase = create_client(
 IST = pytz.timezone("Asia/Kolkata")
 
 USERS = {
-    "ajad": {"password": "1234"},
-    "jitender": {"password": "1234"},
-    "ramniwas": {"password": "1234"},
     "amit": {"password": "1234"},
     "rahul": {"password": "1234"},
     "himanshu": {"password": "1234"},
@@ -29,27 +24,6 @@ ADMIN_PASSWORD = "admin123"
 # ================= HELPERS =================
 def now_ist():
     return datetime.now(UTC).astimezone(IST)
-
-def get_allowed_warehouse_ids(user):
-    res = (
-        supabase.table("user_warehouses")
-        .select("warehouse_id")
-        .eq("user_name", user)
-        .execute()
-    )
-    return [r["warehouse_id"] for r in (res.data or []) if r["warehouse_id"]]
-
-def get_first_warehouse(warehouse_ids):
-    if not warehouse_ids:
-        return None
-
-    res = (
-        supabase.table("warehouses")
-        .select("id, name")
-        .eq("id", warehouse_ids[0])
-        .execute()
-    )
-    return res.data[0] if res.data else None
 
 def upload_photo(photo, user):
     filename = f"{user}/{datetime.now(UTC).timestamp()}.jpg"
@@ -63,10 +37,10 @@ def upload_photo(photo, user):
 def save_row(row):
     supabase.table("attendance").insert(row).execute()
 
-# ================= GPS SCRIPT =================
+# ================= AUTO GPS (NO BUTTON) =================
 st.markdown("""
 <script>
-function getLocation(){
+if (!window.location.search.includes("lat")) {
   navigator.geolocation.getCurrentPosition(
     function(pos){
       const p = new URLSearchParams(window.location.search);
@@ -74,7 +48,9 @@ function getLocation(){
       p.set("lon", pos.coords.longitude);
       window.location.search = p.toString();
     },
-    function(){ alert("Location denied"); }
+    function(){
+      console.log("Location denied");
+    }
   );
 }
 </script>
@@ -114,28 +90,16 @@ if st.session_state.logged and not st.session_state.admin:
     today = now_ist().date()
 
     st.subheader(f"👤 Welcome {user}")
-    st.markdown('<button onclick="getLocation()">📍 Get My Location</button>', unsafe_allow_html=True)
 
     params = dict(st.query_params)
     if "lat" not in params or "lon" not in params:
-        st.warning("📍 Get location first")
+        st.info("📡 Fetching location automatically...")
         st.stop()
 
     lat = float(params["lat"])
     lon = float(params["lon"])
-    st.write("GPS Captured:", lat, lon)
 
-    warehouse_ids = get_allowed_warehouse_ids(user)
-    if not warehouse_ids:
-        st.error("❌ Aap kisi warehouse ke liye allowed nahi ho")
-        st.stop()
-
-    wh = get_first_warehouse(warehouse_ids)
-    if not wh:
-        st.error("❌ Warehouse not found")
-        st.stop()
-
-    st.success(f"🏭 Assigned Warehouse: {wh['name']}")
+    st.caption(f"📍 Location captured: {lat}, {lon}")
 
     photo = st.camera_input("📸 Attendance Photo (Compulsory)")
 
@@ -151,12 +115,12 @@ if st.session_state.logged and not st.session_state.admin:
             "time": now_ist().strftime("%H:%M:%S"),
             "lat": lat,
             "lon": lon,
-            "warehouse_id": wh["id"],
-            "warehouse_name": wh["name"],
+            "warehouse_id": None,
+            "warehouse_name": None,
             "photo": upload_photo(photo, user),
         })
 
-        st.success("✅ Punch IN successful (GPS check disabled)")
+        st.success("✅ Punch IN successful")
 
 # ================= LOGOUT =================
 if st.session_state.logged:
